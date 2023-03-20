@@ -2,118 +2,11 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import mpl_toolkits
+import scipy
 
 from icosphere import icosphere
 from itertools import combinations
 from tqdm import tqdm
-
-
-class SphereMesh:
-
-    def __init__(self, type: str = "icosphere", level: int = 1, return_format : str = None):
-
-        # vertices and faces
-        self.vertices, self.faces = icosphere(nu=level)
-        # self.faces = [[self.vertices[point] for point in face] for face in self.faces] # use coordinates instead of indices
-
-        # cast to list
-        self.vertices = list(self.vertices)
-        self.faces = list(self.faces)
-
-        if type == "goldberg_polyhedron":
-            self.vertices, self.faces = self.build_dual(self.vertices, self.faces)
-        if type == "icosphere":
-            tmp_vertices, tmp_faces = self.build_dual(self.vertices, self.faces)
-            self.vertices, self.faces = self.build_dual(tmp_vertices, tmp_faces)
-
-        # face areas
-        self.face_areas = []
-        for face in self.faces:
-            face_vertices = [self.vertices[j] for j in face]
-            self.face_areas.append(poly_area(face_vertices))
-
-        # edges:
-        self.edges_by_face_indices = []
-        self.edges_by_vertex_indices = []
-        for i, j in combinations(range(len(self.faces)), 2):
-            face_intersection = set([i for i in set.intersection(set(self.faces[i]), set(self.faces[j])) if i!=0])
-            if len(face_intersection) == 2:
-                self.edges_by_face_indices.append([i, j])  # could potentially use set here instead ...
-                # edges_by_face_indices.append({i,j}) # set here instead ...
-                self.edges_by_vertex_indices.append(list(face_intersection))
-
-        # after all operations, we return as array
-        if return_format == "as_array":
-            self.face_areas = np.array(self.face_areas)
-            self.vertices = np.array(self.vertices)
-            self.faces = np.array(self.faces)
-            self.edges_by_face_indices = np.array(self.edges_by_face_indices)
-            self.edges_by_vertex_indices = np.array(self.edges_by_vertex_indices)
-
-    def build_dual(self, vertices, faces):
-        """
-        Given a geodesic polyhedron (as vertices and faces), computes the dual (i.e. a Goldberg polyhedron). The dual operation build a new set
-        of vertices and faces as follows. A vertex in the dual is formed by the centers of each face in the original
-        polyhedron. The faces of the dual are formed by connecting each set of new vertices for which the corresponding
-        faces touched in the original polyhedron
-        :return: vertices (coordinates), faces (indices of vertices they connect)
-
-        :param vertices: list of three-dimensional coordinates
-        :param faces: indices of vertices
-        :return: new lists of vertices and faces
-        """
-
-        new_vertices = [compute_midpoint(vertices, face) for face in tqdm(faces)]
-
-        new_faces = []
-        # for v_indx in tqdm(range(len(vertices))):
-        for i, vertex in enumerate(vertices):
-            # new_face = [face for face in faces if vertex in [vertices[point] for point in face]]
-            new_face = []
-            for j, face in enumerate(faces):
-                if i in face:
-                    new_face.append(j)
-                        # new_face.append([i for i in range(len(faces)) if (np.array(faces)[i,:]==face).all()][0])
-
-            new_faces.append(new_face)
-
-        return new_vertices, new_faces
-
-    def visualise(self, show_midpoints: bool = False):
-
-        fig = plt.figure(figsize=(15, 10))
-
-        # creating mesh
-        # poly = mpl_toolkits.mplot3d.art3d.Poly3DCollection(self.vertices[self.faces])
-        poly = mpl_toolkits.mplot3d.art3d.Poly3DCollection([np.array([self.vertices[v_idx] for v_idx in face]) for face in self.faces])
-        poly.set_edgecolor('black')
-        poly.set_linewidth(0.25)
-
-        # would be nice to visualise edges (to make sure what we defined as edges is the right thing)
-
-        # and now -- visualization!
-        ax = fig.add_subplot(1, 1, 1, projection='3d')
-
-        ax.add_collection3d(poly)
-
-        # if show_midpoints:
-        #     midpoints = compute_midpoint(self.vertices, self.faces)
-
-            # ax.scatter(midpoints[:,0],midpoints[:,1],midpoints[:,2], marker = "o", color="orange", s=40)
-        ax.scatter(np.array(self.vertices)[:,0],np.array(self.vertices)[:,1],np.array(self.vertices)[:,2], marker = "o", color="green", s=40)
-
-        # ax.set_xlim(-1, 1)
-        # ax.set_ylim(-1, 1)
-        # ax.set_zlim(-1, 1)
-
-        # ax.set_xticks([-1, 0, 1])
-        # ax.set_yticks([-1, 0, 1])
-        # ax.set_zticks([-1, 0, 1])
-
-        # ax.set_title(f'Title TBA')
-
-        fig.suptitle('Icospheres with different subdivision frequency')
-        plt.show()
 
 
 # copied from https://code.activestate.com/recipes/578276-3d-polygon-area/
@@ -147,19 +40,122 @@ def unit_normal(a, b, c):
     magnitude = (x ** 2 + y ** 2 + z ** 2) ** .5
     return (x / magnitude, y / magnitude, z / magnitude)
 
-def compute_midpoint(vertices, face, show: bool = True):
 
-    adj_vertices = np.array([vertices[indx] for indx in face])
-    midpoint = list(np.mean(adj_vertices, axis=0))
+def reorder_points(points):
 
-        # if show:
-        #     fig = plt.figure()
-        #     ax = fig.add_subplot(projection='3d')
-        #     ax.scatter(midpoint[0],midpoint[1],midpoint[2])
-        #     ax.scatter(adj_vertices[:,0],adj_vertices[:,1],adj_vertices[:,2])
-        #     plt.show()
+    # Calculate the center of the points
+    c = points.mean(axis=0)
+    c = c / np.linalg.norm(c, ord=2)
+    v1 = np.array([-c[1], c[0], 0])
+    v1 = v1 / np.linalg.norm(v1, ord=2)
 
-    return midpoint
+    # print(c.shape, v1.shape)
+
+    v2 = np.cross(c, v1)
+    pmc = points - c.reshape((1, 3))
+    pmc0 = (pmc * v1).sum(axis=-1)
+    pmc1 = (pmc * v2).sum(axis=-1)
+
+    # Calculate the angles between the horizontal and the line joining center to each point
+    angles = np.arctan2(pmc1, pmc0)
+
+    return np.argsort(angles).tolist()
+
+
+def build_dual(vertices, faces):
+    """
+    Given a geodesic polyhedron (as vertices and faces), computes the dual (i.e. a Goldberg polyhedron). The dual operation build a new set
+    of vertices and faces as follows. A vertex in the dual is formed by the centers of each face in the original
+    polyhedron. The faces of the dual are formed by connecting each set of new vertices for which the corresponding
+    faces touched in the original polyhedron
+    :return: vertices (coordinates), faces (indices of vertices they connect)
+
+    :param vertices: list of three-dimensional coordinates
+    :param faces: indices of vertices
+    :return: new lists of vertices and faces
+    """
+
+    vertices_dual = vertices[faces, :].mean(axis=1)
+    vertices_dual = vertices_dual / np.linalg.norm(vertices_dual, axis=-1, ord=2).reshape((-1, 1))
+
+    ncell = faces.shape[0]
+    nvert = vertices.shape[0]
+
+    indices = faces.reshape((ncell * faces.shape[1],))
+    data = np.ones(len(indices))
+    indptr = np.arange(0, ncell * faces.shape[1] + 0.1, faces.shape[1])
+
+    adj_matrix_dual = scipy.sparse.csr_matrix((data, indices, indptr), shape=(ncell, nvert)).transpose().tocsr()
+
+    faces_dual = [adj_matrix_dual.indices[adj_matrix_dual.indptr[j]: adj_matrix_dual.indptr[j + 1]] for j in
+                  range(nvert)]
+    faces_dual = [pl[reorder_points(vertices_dual[pl])] for pl in faces_dual]
+
+    return np.array(vertices_dual), np.array(faces_dual)
+
+
+class SphereMesh:
+
+    def __init__(self, type: str = "icosphere", level: int = 1):
+
+        self.level = level
+        self.type = type
+
+        # vertices and faces
+        self.vertices, self.faces = icosphere(nu=level)
+        # self.faces = [[self.vertices[point] for point in face] for face in self.faces] # use coordinates instead of indices
+
+        if type == "goldberg_polyhedron":
+            self.vertices, self.faces = build_dual(self.vertices, self.faces)
+        if type == "icosphere":
+            tmp_vertices, tmp_faces = build_dual(self.vertices, self.faces)
+            self.vertices, self.faces = build_dual(tmp_vertices, tmp_faces)
+
+        # face areas
+        self.face_areas = []
+        for face in self.faces:
+            face_vertices = [self.vertices[j] for j in face]
+            self.face_areas.append(poly_area(face_vertices))
+        self.face_areas = np.array(self.face_areas)
+
+
+        # edges:
+        self.edges_by_face_indices = []
+        self.edges_by_vertex_indices = []
+        for i, j in combinations(range(len(self.faces)), 2):
+            face_intersection = set([i for i in set.intersection(set(self.faces[i]), set(self.faces[j])) if i!=0])
+            if len(face_intersection) == 2:
+                self.edges_by_face_indices.append([i, j])  # could potentially use set here instead ...
+                # edges_by_face_indices.append({i,j}) # in set format ...
+                self.edges_by_vertex_indices.append(list(face_intersection))
+        self.edges_by_face_indices = np.array(self.edges_by_face_indices)
+        self.edges_by_vertex_indices = np.array(self.edges_by_vertex_indices)
+
+    def visualise(self, show_midpoints: bool = False):
+
+        fig = plt.figure()
+
+        # creating mesh
+        poly = mpl_toolkits.mplot3d.art3d.Poly3DCollection([np.array([self.vertices[v_idx] for v_idx in face]) for face in self.faces])
+
+        poly.set_edgecolor('black')
+        poly.set_linewidth(0.25)
+
+        # would be nice to visualise edges (to make sure what we defined as edges is the right thing)
+
+        # and now -- visualization!
+        ax = fig.add_subplot(1, 1, 1, projection='3d')
+
+        ax.set_xlim([-1, 1])
+        ax.set_ylim([-1, 1])
+        ax.set_zlim([-1, 1])
+
+        ax.add_collection3d(poly)
+        ax.scatter(np.array(self.vertices)[:,0],np.array(self.vertices)[:,1],np.array(self.vertices)[:,2], marker = "o", color="green", s=40)
+
+        ax.set_title(f'{self.type} with subdivision frequency {self.level}.')
+
+        plt.show()
 
 
 if __name__ == "__main__":
