@@ -62,7 +62,7 @@ def reorder_points(points):
     return np.argsort(angles).tolist()
 
 
-def build_dual(vertices, faces):
+def build_dual(vertices: np.array, faces: list) -> (np.array, list):
     """
     Given a geodesic polyhedron (as vertices and faces), computes the dual (i.e. a Goldberg polyhedron). The dual operation build a new set
     of vertices and faces as follows. A vertex in the dual is formed by the centers of each face in the original
@@ -70,28 +70,27 @@ def build_dual(vertices, faces):
     faces touched in the original polyhedron
     :return: vertices (coordinates), faces (indices of vertices they connect)
 
-    :param vertices: list of three-dimensional coordinates
-    :param faces: indices of vertices
-    :return: new lists of vertices and faces
+    :param vertices: numpy array of three-dimensional coordinates, shape: (n_vertices, 3)
+    :param faces: list of vertex indices
+    :return: new array of vertices and list of faces
     """
 
-    vertices_dual = vertices[faces, :].mean(axis=1)
+    vertices_dual = np.concatenate([vertices[face].mean(axis=0).reshape(1, 3) for face in faces], axis=0)
     vertices_dual = vertices_dual / np.linalg.norm(vertices_dual, axis=-1, ord=2).reshape((-1, 1))
 
-    ncell = faces.shape[0]
+    ncell = len(faces)
     nvert = vertices.shape[0]
 
-    indices = faces.reshape((ncell * faces.shape[1],))
+    indices = np.array([vert for face in faces for vert in face])
     data = np.ones(len(indices))
-    indptr = np.arange(0, ncell * faces.shape[1] + 0.1, faces.shape[1])
-
+    indptr = np.cumsum(np.array([0]+[len(face) for face in faces]))
     adj_matrix_dual = scipy.sparse.csr_matrix((data, indices, indptr), shape=(ncell, nvert)).transpose().tocsr()
 
     faces_dual = [adj_matrix_dual.indices[adj_matrix_dual.indptr[j]: adj_matrix_dual.indptr[j + 1]] for j in
                   range(nvert)]
     faces_dual = [pl[reorder_points(vertices_dual[pl])] for pl in faces_dual]
 
-    return np.array(vertices_dual), np.array(faces_dual)
+    return vertices_dual, faces_dual
 
 
 class SphereMesh:
@@ -103,6 +102,7 @@ class SphereMesh:
 
         # vertices and faces
         self.vertices, self.faces = icosphere(nu=level)
+        self.faces = list(self.faces)
         # self.faces = [[self.vertices[point] for point in face] for face in self.faces] # use coordinates instead of indices
 
         if type == "goldberg_polyhedron":
@@ -159,8 +159,8 @@ class SphereMesh:
 
 
 if __name__ == "__main__":
-    mesh = SphereMesh(level=1)
-    # mesh = SphereMesh(type="goldberg_polyhedron", level=1)
+    # mesh = SphereMesh(level=2)
+    mesh = SphereMesh(type="goldberg_polyhedron", level=3)
     mesh.visualise(show_midpoints=True)
 
     print("Done.")
