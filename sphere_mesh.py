@@ -103,10 +103,11 @@ class SphereMesh:
         # vertices and faces
         self.vertices, self.faces = icosphere(nu=level)
         self.faces = list(self.faces)
-        # self.faces = [[self.vertices[point] for point in face] for face in self.faces] # use coordinates instead of indices
 
         if type == "goldberg_polyhedron":
             self.vertices, self.faces = build_dual(self.vertices, self.faces)
+
+        # to assert that duality is an involution
         if type == "icosphere":
             tmp_vertices, tmp_faces = build_dual(self.vertices, self.faces)
             self.vertices, self.faces = build_dual(tmp_vertices, tmp_faces)
