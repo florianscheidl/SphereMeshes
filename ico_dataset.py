@@ -48,38 +48,42 @@ class IcoDataset(InMemoryDataset):
 
 
 class IcoSphereWithFeatures:
-    def __init__(self, v_features=None, nu: int = 2, response=None):
+    def __init__(self, v_features=None, edge_response=None, nu: int = 2, response=None):
         self.vertex_coordinates, self.faces = icosphere(nu=nu)
 
         self.ncell = len(self.faces)
         self.num_nodes = self.vertex_coordinates.shape[0]
 
+        # nodes AND node features
         if v_features is not None:
             self.x = v_features  # a feature matrix of the form [n_features, feature_dim]
-
-        # otherwise populate with random features
-        else:
+        else:  # otherwise populate with random features
             self.x = torch.rand((self.num_nodes, 4), dtype=torch.float32)  # a feature matrix of the form [n_features, feature_dim]
 
         self.num_node_features = self.x.shape[1]
 
-        if response is not None:
-            self.y = response
-        else:
-            self.y = torch.randint(size=(self.num_nodes,), low=0, high=4)
-
-        # random train mask using ~0.8 share of the nodes as training data
-        self.train_mask = torch.bernoulli(torch.full(size=(self.num_nodes,),
-                                                     fill_value=0.9)).to(torch.bool)
-        self.half_mask = torch.bernoulli(torch.full(size=(self.num_nodes,), fill_value=0.5)).to(torch.bool)
-        self.val_mask = self.half_mask * ~self.train_mask
-        self.test_mask = ~self.half_mask * ~self.train_mask
-
-
-        # adjacency matrix
+        # edges and edge features
         self.edges_by_vertex_indices = []
         for i, j in combinations(range(len(self.faces)), 2):
             face_intersection = set([i for i in set.intersection(set(self.faces[i]), set(self.faces[j])) if i!=0])
             if len(face_intersection) == 2:
                    self.edges_by_vertex_indices.append(list(face_intersection))
         self.edge_index = torch.Tensor(self.edges_by_vertex_indices).to(torch.int64).transpose(0,1)
+
+        self.num_edges = self.edge_index.shape[1]
+
+        if edge_response is not None:
+            self.y = edge_response
+            self.num_edge_features = edge_response.shape[1]
+        else:  # use random responses for now
+            self.num_edge_features = 6
+            self.y = 50 + torch.rand((self.num_edges, self.num_edge_features), dtype=torch.float32)
+
+        # random train mask using ~0.8 share of the nodes as training data
+        self.train_mask = torch.bernoulli(torch.full(size=(self.num_edges,),
+                                                     fill_value=0.9)).to(torch.bool)
+        self.half_mask = torch.bernoulli(torch.full(size=(self.num_edges,), fill_value=0.5)).to(torch.bool)
+        self.val_mask = self.half_mask * ~self.train_mask
+        self.test_mask = ~self.half_mask * ~self.train_mask
+
+
