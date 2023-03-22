@@ -12,10 +12,13 @@ from itertools import combinations
 
 
 class IcoDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None, nu: int = 2):
+    def __init__(self, root: str = ".", transform=None, pre_transform=None, pre_filter=None, nu: int = 2):
+
+        self.nu = nu
+
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
-        self.nu = nu
+
 
     @property
     def raw_file_names(self):
@@ -49,19 +52,29 @@ class IcoSphereWithFeatures:
         self.vertex_coordinates, self.faces = icosphere(nu=nu)
 
         self.ncell = len(self.faces)
-        self.nvert = self.vertex_coordinates.shape[0]
+        self.num_nodes = self.vertex_coordinates.shape[0]
 
         if v_features is not None:
-            self.v_features = v_features  # a feature matrix of the form [n_features, feature_dim]
+            self.x = v_features  # a feature matrix of the form [n_features, feature_dim]
 
         # otherwise populate with random features
         else:
-            self.v_features = torch.rand((self.nvert, 4), dtype=torch.float32)  # a feature matrix of the form [n_features, feature_dim]
+            self.x = torch.rand((self.num_nodes, 4), dtype=torch.float32)  # a feature matrix of the form [n_features, feature_dim]
+
+        self.num_node_features = self.x.shape[1]
 
         if response is not None:
             self.y = response
         else:
-            self.y = torch.randint(size=(self.nvert, 1), low=0, high=4)
+            self.y = torch.randint(size=(self.num_nodes,), low=0, high=4)
+
+        # random train mask using ~0.8 share of the nodes as training data
+        self.train_mask = torch.bernoulli(torch.full(size=(self.num_nodes,),
+                                                     fill_value=0.9)).to(torch.bool)
+        self.half_mask = torch.bernoulli(torch.full(size=(self.num_nodes,), fill_value=0.5)).to(torch.bool)
+        self.val_mask = self.half_mask * ~self.train_mask
+        self.test_mask = ~self.half_mask * ~self.train_mask
+
 
         # adjacency matrix
         self.edges_by_vertex_indices = []
@@ -69,4 +82,4 @@ class IcoSphereWithFeatures:
             face_intersection = set([i for i in set.intersection(set(self.faces[i]), set(self.faces[j])) if i!=0])
             if len(face_intersection) == 2:
                    self.edges_by_vertex_indices.append(list(face_intersection))
-        self.edge_index = np.array(self.edges_by_vertex_indices)
+        self.edge_index = torch.Tensor(self.edges_by_vertex_indices).to(torch.int64).transpose(0,1)
